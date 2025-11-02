@@ -21,7 +21,7 @@
  */
 import 'package:flutter/material.dart';
 
-import '../../showcaseview.dart';
+import '../utils/enum.dart';
 
 class TooltipActionConfig {
   /// Configuration options for tooltip action buttons.
@@ -34,6 +34,7 @@ class TooltipActionConfig {
     this.position = TooltipActionPosition.inside,
     this.gapBetweenContentAndAction = 10,
     this.crossAxisAlignment = CrossAxisAlignment.start,
+    this.mainAxisSize = MainAxisSize.max,
     this.textBaseline,
   }) : assert(
           crossAxisAlignment != CrossAxisAlignment.stretch,
@@ -59,4 +60,31 @@ class TooltipActionConfig {
   /// If aligning items according to their baseline, which baseline to use.
   /// This must be set if using baseline alignment.
   final TextBaseline? textBaseline;
+
+  /// Defines the main axis size of action buttons of tooltip action widget.
+  final MainAxisSize mainAxisSize;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is TooltipActionConfig &&
+        alignment == other.alignment &&
+        actionGap == other.actionGap &&
+        position == other.position &&
+        gapBetweenContentAndAction == other.gapBetweenContentAndAction &&
+        crossAxisAlignment == other.crossAxisAlignment &&
+        textBaseline == other.textBaseline &&
+        mainAxisSize == other.mainAxisSize;
+  }
+
+  @override
+  int get hashCode => Object.hashAllUnordered([
+        alignment,
+        actionGap,
+        position,
+        gapBetweenContentAndAction,
+        crossAxisAlignment,
+        textBaseline,
+        mainAxisSize,
+      ]);
 }

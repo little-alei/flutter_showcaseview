@@ -129,6 +129,10 @@ class _RenderPositionDelegate extends RenderBox
       ? Constants.withArrowToolTipPadding
       : Constants.withOutArrowToolTipPadding;
 
+  // Override to make this object a repaint boundary for better raster thread performance
+  @override
+  bool get isRepaintBoundary => true;
+
   @override
   void performLayout() {
     // Initialize

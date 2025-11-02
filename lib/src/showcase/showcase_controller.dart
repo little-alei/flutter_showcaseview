@@ -19,12 +19,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
-import '../models/linked_showcase_data.dart';
+import '../models/flutter_inherited_data.dart';
+import '../models/linked_showcase_data_model.dart';
 import '../models/tooltip_action_config.dart';
 import '../tooltip/tooltip.dart';
 import '../utils/overlay_manager.dart';
@@ -98,6 +101,10 @@ class ShowcaseController {
   /// Global floating action widget to be displayed
   FloatingActionWidget? globalFloatingActionWidget;
 
+  /// Captured inherited widget data from showcase context
+  late final FlutterInheritedData inheritedData =
+      FlutterInheritedData.fromContext(_context);
+
   /// Returns the Showcase widget configuration.
   ///
   /// Provides access to all properties and settings of the current showcase
@@ -119,7 +126,7 @@ class ShowcaseController {
   /// tree.
   bool get _mounted => getState().mounted;
 
-  /// Callback to start the showcase.
+  /// Callback to setup the showcase.
   ///
   /// Initializes the showcase by calculating positions and preparing visual
   /// elements.
@@ -134,20 +141,16 @@ class ShowcaseController {
   ///
   /// This method is typically called internally by the showcase system but
   /// can also be called manually to force a recalculation of showcase elements.
-  void startShowcase() {
+  void setupShowcase({bool shouldUpdateOverlay = true}) {
     if (!showcaseView.enableShowcase || !_mounted) return;
 
-    recalculateRootWidgetSize(_context);
+    recalculateRootWidgetSize(
+      _context,
+      shouldUpdateOverlay: shouldUpdateOverlay,
+    );
     globalFloatingActionWidget = showcaseView
         .getFloatingActionWidget(config.showcaseKey)
         ?.call(_context);
-    final size = rootWidgetSize ?? MediaQuery.sizeOf(_context);
-    position ??= TargetPositionService(
-      rootRenderObject: rootRenderObject,
-      screenSize: size,
-      renderBox: _context.findRenderObject() as RenderBox?,
-      padding: config.targetPadding,
-    );
   }
 
   /// Used to scroll the target into view.
@@ -165,32 +168,24 @@ class ShowcaseController {
   ///
   /// Returns a Future that completes when scrolling is finished. If the widget
   /// is unmounted during scrolling, the operation will be canceled safely.
-  Future<void> scrollIntoView() async {
+  Future<void> scrollIntoView({bool shouldUpdateOverlay = true}) async {
     if (!_mounted) {
       assert(_mounted, 'Widget has been unmounted');
       return;
     }
 
     isScrollRunning = true;
-    updateControllerData();
-    startShowcase();
-    OverlayManager.instance.update(
-      show: showcaseView.isShowcaseRunning,
-      scope: showcaseView.scope,
-    );
+    setupShowcase(shouldUpdateOverlay: shouldUpdateOverlay);
     await Scrollable.ensureVisible(
       _context,
       duration: showcaseView.scrollDuration,
       alignment: config.scrollAlignment,
     );
+    // For the cases when scrollAlignment causes overscroll.
+    await _waitForScrollToSettle();
 
     isScrollRunning = false;
-    updateControllerData();
-    startShowcase();
-    OverlayManager.instance.update(
-      show: showcaseView.isShowcaseRunning,
-      scope: showcaseView.scope,
-    );
+    setupShowcase(shouldUpdateOverlay: shouldUpdateOverlay);
   }
 
   /// Handles tap on barrier area.
@@ -214,20 +209,26 @@ class ShowcaseController {
   ///
   /// Parameter:
   /// * [context] The BuildContext of the [Showcase] widget.
-  void recalculateRootWidgetSize(BuildContext context) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!context.mounted) return;
+  void recalculateRootWidgetSize(
+    BuildContext context, {
+    bool shouldUpdateOverlay = true,
+  }) {
+    if (!showcaseView.enableShowcase || !showcaseView.isShowcaseRunning) return;
+    _runLater(() {
+      if (!context.mounted ||
+          !showcaseView.enableShowcase ||
+          !showcaseView.isShowcaseRunning) {
+        return;
+      }
 
       _initRootWidget();
-      if (!showcaseView.enableShowcase) return;
 
-      updateControllerData();
-      if (!showcaseView.isShowcaseRunning) return;
-
-      OverlayManager.instance.update(
-        show: showcaseView.isShowcaseRunning,
-        scope: showcaseView.scope,
-      );
+      if (shouldUpdateOverlay) {
+        OverlayManager.instance.update(
+          show: showcaseView.isShowcaseRunning,
+          scope: showcaseView.scope,
+        );
+      }
     });
   }
 
@@ -310,8 +311,7 @@ class ShowcaseController {
               disableDefaultChildGestures: config.disableDefaultTargetGestures,
               targetPadding: config.targetPadding,
             ),
-            ToolTipWidget(
-              key: ValueKey(id),
+            ToolTipWrapper(
               title: config.title,
               titleTextAlign: config.titleTextAlign,
               description: config.description,
@@ -401,8 +401,9 @@ class ShowcaseController {
         ? config.tooltipActions!
         : showcaseView.globalTooltipActions ?? [];
     final actionDataLength = actionData.length;
-    final lastAction = actionData.lastOrNull;
-    final actionGap = _getTooltipActionConfig().actionGap;
+    final actionConfig = _getTooltipActionConfig();
+    final actionGap = actionConfig.actionGap;
+    final areActionsInsideHorizontal = actionConfig.position.isInsideHorizontal;
 
     return [
       for (var i = 0; i < actionDataLength; i++)
@@ -410,9 +411,15 @@ class ShowcaseController {
             !actionData[i]
                 .hideActionWidgetForShowcase
                 .contains(config.showcaseKey))
+          // TODO: Switch to using spacing in [ActionWidget].
           Padding(
             padding: EdgeInsetsDirectional.only(
-              end: actionData[i] == lastAction ? 0 : actionGap,
+              end: i == (actionDataLength - 1) || areActionsInsideHorizontal
+                  ? 0
+                  : actionGap,
+              bottom: i == (actionDataLength - 1) || !areActionsInsideHorizontal
+                  ? 0
+                  : actionGap,
             ),
             child: TooltipActionButtonWidget(
               config: actionData[i],
@@ -438,6 +445,40 @@ class ShowcaseController {
   /// configuration over global when available.
   FloatingActionWidget? get _getFloatingActionWidget =>
       config.floatingActionWidget ?? globalFloatingActionWidget;
+
+  /// Schedules a callback to run after the current frame with guarantee.
+  void _runLater(VoidCallback process) {
+    final scheduler = SchedulerBinding.instance;
+    // Schedule a frame if none is scheduled to ensure the callback runs.
+    // This is useful particularly when [disableMovingAnimation] is true and so
+    // flutter doesn't another frame on web.
+    if (!scheduler.hasScheduledFrame) {
+      scheduler.scheduleFrame();
+    }
+    scheduler.addPostFrameCallback((_) => process());
+  }
+
+  /// Waits until the scroll position stops changing (settles).
+  Future<void> _waitForScrollToSettle({
+    Duration checkInterval = const Duration(milliseconds: 60),
+    int maxChecks = 120,
+  }) async {
+    final scrollableState = Scrollable.maybeOf(_context);
+    if (scrollableState == null) return;
+
+    final position = scrollableState.position;
+    var lastPixels = position.pixels;
+    var checks = 0;
+
+    while (checks < maxChecks) {
+      await Future<void>.delayed(checkInterval);
+      if (!position.hasPixels) break;
+      final currentPixels = position.pixels;
+      if ((currentPixels - lastPixels).abs() < 0.5) break;
+      lastPixels = currentPixels;
+      checks++;
+    }
+  }
 
   @override
   int get hashCode => Object.hash(id, key);

@@ -25,7 +25,6 @@ import 'package:flutter/material.dart';
 import '../models/showcase_scope.dart';
 import '../models/tooltip_action_button.dart';
 import '../models/tooltip_action_config.dart';
-import '../showcase_widget.dart';
 import '../utils/constants.dart';
 import '../utils/enum.dart';
 import '../utils/overlay_manager.dart';
@@ -61,9 +60,9 @@ class Showcase extends StatefulWidget {
   /// ```
   const Showcase({
     required GlobalKey key,
-    required this.description,
     required this.child,
     this.title,
+    this.description,
     this.titleTextAlign = TextAlign.start,
     this.descriptionTextAlign = TextAlign.start,
     this.titleAlignment = Alignment.center,
@@ -113,10 +112,13 @@ class Showcase extends StatefulWidget {
     this.enableAutoScroll,
     this.floatingActionWidget,
     this.targetTooltipGap = 10,
-  })  : height = null,
-        width = null,
-        container = null,
+  })  : container = null,
         showcaseKey = key,
+        assert(
+          title != null || description != null,
+          "title and description both can't be null. If you don't want to "
+          "provide those then use Showcase.withWidget() constructor",
+        ),
         assert(
           targetTooltipGap >= 0,
           'targetTooltipGap must be greater than 0',
@@ -153,8 +155,6 @@ class Showcase extends StatefulWidget {
   /// ```dart
   /// Showcase.withWidget(
   ///   key: _customKey,
-  ///   height: 80,
-  ///   width: 140,
   ///   container: Column(
   ///     children: [
   ///       Text(
@@ -173,8 +173,6 @@ class Showcase extends StatefulWidget {
   /// ```
   const Showcase.withWidget({
     required GlobalKey key,
-    required this.height,
-    required this.width,
     required this.container,
     required this.child,
     this.floatingActionWidget,
@@ -227,6 +225,11 @@ class Showcase extends StatefulWidget {
         descriptionTextDirection = null,
         showcaseKey = key,
         assert(
+          container != null,
+          'A container widget must be provided with this constructor. If '
+          'default showcase is desired then use Showcase() constructor',
+        ),
+        assert(
           targetTooltipGap >= 0,
           'targetTooltipGap must be greater than 0',
         ),
@@ -251,7 +254,7 @@ class Showcase extends StatefulWidget {
   /// A key that is unique across the entire app.
   ///
   /// This Key will be used to control state of individual showcase and also
-  /// used in [ShowcaseView.startShowcase] to define position of current
+  /// used in [ShowcaseView.setupShowcase] to define position of current
   /// target widget while showcasing.
   final GlobalKey showcaseKey;
 
@@ -336,12 +339,6 @@ class Showcase extends StatefulWidget {
   ///
   /// Default to `true`
   final bool showArrow;
-
-  /// Height of [container]
-  final double? height;
-
-  /// Width of [container]
-  final double? width;
 
   /// The duration of time the bouncing animation of tooltip should last.
   ///
@@ -538,7 +535,7 @@ class _ShowcaseState extends State<Showcase> {
 
   late ShowcaseScope _showCaseWidgetManager;
 
-  late final int _uniqueId = widget.hashCode;
+  late final int _uniqueId = UniqueKey().hashCode;
 
   @override
   void initState() {
@@ -566,6 +563,19 @@ class _ShowcaseState extends State<Showcase> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget == widget) return;
     _updateControllerValues();
+    if (oldWidget.showcaseKey != widget.showcaseKey) {
+      ShowcaseService.instance.removeController(
+        key: oldWidget.showcaseKey,
+        id: _uniqueId,
+        scope: _showCaseWidgetManager.name,
+      );
+      ShowcaseController.register(
+        id: _uniqueId,
+        key: widget.showcaseKey,
+        getState: () => this,
+        showcaseView: _showCaseWidgetManager.showcaseView,
+      );
+    }
   }
 
   @override
@@ -573,7 +583,12 @@ class _ShowcaseState extends State<Showcase> {
     // This is to support hot reload
     _updateControllerValues();
 
-    _controller.recalculateRootWidgetSize(context);
+    _controller.recalculateRootWidgetSize(
+      context,
+      shouldUpdateOverlay:
+          _showCaseWidgetManager.showcaseView.getActiveShowcaseKey ==
+              widget.showcaseKey,
+    );
     return widget.child;
   }
 
@@ -584,14 +599,15 @@ class _ShowcaseState extends State<Showcase> {
       id: _uniqueId,
       scope: _showCaseWidgetManager.name,
     );
-
     super.dispose();
   }
 
   void _updateControllerValues() {
-    _showCaseWidgetManager = ShowcaseService.instance.getScope(
+    final manager = ShowcaseService.instance.getScope(
       scope: _showCaseWidgetManager.name,
     );
+    if (manager == _showCaseWidgetManager) return;
+    _showCaseWidgetManager = manager;
     ShowcaseService.instance.addController(
       controller: _controller
         ..showcaseView = _showCaseWidgetManager.showcaseView,

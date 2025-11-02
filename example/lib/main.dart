@@ -120,7 +120,8 @@ class _MailPageState extends State<MailPage> {
     //Start showcase view after current widget frames are drawn.
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => ShowcaseView.get().startShowCase(
-          [_firstShowcaseWidget, _two, _three, _four, _lastShowcaseWidget]),
+        [_firstShowcaseWidget, _two, _three, _four, _lastShowcaseWidget],
+      ),
     );
     mails = [
       Mail(
@@ -192,6 +193,8 @@ class _MailPageState extends State<MailPage> {
   @override
   void dispose() {
     scrollController.dispose();
+    // Unregister the showcase view when the widget is disposed
+    ShowcaseView.get().unregister();
     super.dispose();
   }
 
@@ -392,28 +395,19 @@ class _MailPageState extends State<MailPage> {
         description: 'Click here to compose mail',
         targetBorderRadius: const BorderRadius.all(Radius.circular(16)),
         showArrow: false,
+        tooltipActionConfig: const TooltipActionConfig(
+          position: TooltipActionPosition.insideRight,
+          gapBetweenContentAndAction: 8,
+        ),
         tooltipActions: [
-          TooltipActionButton(
-              type: TooltipDefaultActionType.previous,
-              name: 'Back',
+          TooltipActionButton.custom(
+            button: GestureDetector(
               onTap: () {
-                // Write your code on button tap
-                ShowcaseView.get().previous();
+                ShowcaseView.get().dismiss();
               },
-              backgroundColor: Colors.pink.shade50,
-              textStyle: const TextStyle(
-                color: Colors.pink,
-              )),
-          const TooltipActionButton(
-            type: TooltipDefaultActionType.skip,
-            name: 'Close',
-            textStyle: TextStyle(
-              color: Colors.white,
-            ),
-            tailIcon: ActionButtonIcon(
-              icon: Icon(
+              child: const Icon(
                 Icons.close,
-                color: Colors.white,
+                color: Colors.black,
                 size: 15,
               ),
             ),
@@ -596,8 +590,6 @@ class MailTile extends StatelessWidget {
                 if (showCaseDetail)
                   Showcase.withWidget(
                     key: showCaseKey!,
-                    height: 50,
-                    width: 150,
                     tooltipActionConfig: const TooltipActionConfig(
                       alignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.center,
