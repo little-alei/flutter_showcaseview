@@ -129,6 +129,7 @@ Reference](https://pub.dev/documentation/showcaseview/latest/showcaseview/).
 ```dart
 ShowcaseView.register(
   autoPlayDelay: const Duration(seconds: 3),
+  semanticEnable: true, // Enable accessibility support globally
   globalFloatingActionWidget: (showcaseContext) => FloatingActionWidget(
     left: 16,
     bottom: 16,
@@ -570,6 +571,79 @@ ShowcaseView.register(
 )
 ```
 
+### Dynamic Callbacks
+
+You can also add and remove event callbacks dynamically at runtime. This is particularly useful when you need to register callbacks from widgets deeper in the tree or when using named scopes.
+
+#### OnComplete Callback
+
+Add or remove callbacks that trigger when each showcase step completes:
+
+```dart
+// Add a callback for when each showcase step completes
+ShowcaseView.get().addOnCompleteCallback((index, key) {
+  print('Showcase step $index completed with key: $key');
+  // Perform custom actions here
+});
+
+// Remove a previously added callback
+ShowcaseView.get().removeOnCompleteCallback(callbackFunction);
+```
+
+**Example with named scope:**
+
+```dart
+ShowcaseView.getNamed('profile').addOnCompleteCallback((index, key) {
+  print('Profile showcase completed at step $index');
+});
+```
+
+#### OnFinish Callback
+
+Add or remove callbacks that trigger when the entire showcase tour is finished:
+
+```dart
+// Add a callback for when the showcase tour is finished
+ShowcaseView.get().addOnFinishCallback(() {
+  print('Showcase tour finished');
+  // Perform custom actions here
+});
+
+// Remove a previously added callback
+ShowcaseView.get().removeOnFinishCallback(callbackFunction);
+```
+
+**Example with named scope:**
+
+```dart
+ShowcaseView.getNamed('profile').addOnFinishCallback(() {
+  print('Profile showcase tour finished');
+});
+```
+
+#### OnDismiss Callback
+
+Add or remove callbacks that trigger when the showcase is dismissed:
+
+```dart
+// Add a callback for when the showcase tour is dismissed
+ShowcaseView.get().addOnDismissCallback((reason) {
+  print('Showcase dismissed because: $reason');
+  // Perform custom actions here
+});
+
+// Remove a previously added callback
+ShowcaseView.get().removeOnDismissCallback(callbackFunction);
+```
+
+**Example with named scope:**
+
+```dart
+ShowcaseView.getNamed('profile').addOnDismissCallback((reason) {
+  print('Profile showcase dismissed because: $reason');
+});
+```
+
 ## Overriding Showcase View Configuration
 
 You can set global configurations for all showcases in your app by using ShowcaseView.register()
@@ -606,9 +680,160 @@ performed using that scope name, i.e.
 > If multiple scopes are registered with same name then the last registering scope would be 
 > consider valid and the rest would be overrode by the last one.
 
+## Explicit Scope Assignment with `scope`
+
+By default, `Showcase` widgets use the currently active scope. However, you can explicitly 
+assign a `Showcase` widget to a specific scope using the `scope` parameter. This is 
+particularly useful when you need to ensure a widget belongs to a specific scope regardless 
+of which scope is currently active.
+
+```dart
+Showcase(
+  key: _profileKey,
+  scope: 'profile',
+  title: 'Profile',
+  description: 'Your profile information',
+  child: Icon(Icons.person),
+),
+```
+
+This approach is helpful in scenarios with multiple active scopes in the same widget tree, 
+ensuring each `Showcase` widget targets the correct scope without relying on global state 
+changes.
+
 # Migration Guides
 
 This document provides guidance for migrating between different versions of the ShowCaseView package.
+
+## Migration guide for release 5.x.x
+
+The 5.x.x release removes the dependency on `BuildContext` for controlling showcases and introduces an explicit registration lifecycle. Instead of calling methods via `ShowCaseWidget.of(context)`, you can now register once and control showcases through `ShowcaseView.get()`.
+
+Find more examples at [basic](#basic-usage) and [advance](#advanced-usage) usage.
+
+### Before (pre-5.0.0)
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:showcaseview/showcaseview.dart';
+
+void main() => runApp(const MyApp());
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: ShowCaseWidget(
+        // Prior to 5.x.x, you wrapped your page with ShowCaseWidget
+        builder: (context) => const MyPage(),
+      ),
+    );
+  }
+}
+
+class MyPage extends StatefulWidget {
+  const MyPage({super.key});
+  @override
+  State<MyPage> createState() => MyPageState();
+}
+
+class MyPageState extends State<MyPage> {
+  final _one = GlobalKey();
+  final _two = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Context-based control
+      ShowCaseWidget.of(context).startShowCase([_one, _two]);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Legacy ShowCase Usage')),
+      body: Center(
+        child: Showcase(
+          key: _one,
+          title: 'Legacy',
+          description: 'Context-based control via ShowCaseWidget.of(context)',
+          child: const Icon(Icons.info),
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: onClose,
+        child: const Icon(Icons.close),
+      ),
+    );
+  }
+
+  void onClose() {
+    ShowCaseWidget.of(context).dismiss();
+  }
+}
+```
+
+### After (5.0.0+)
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:showcaseview/showcaseview.dart';
+
+void main() => runApp(const MyApp());
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: const MyPage(),
+    );
+  }
+}
+
+class MyPage extends StatefulWidget {
+  const MyPage({super.key});
+  @override
+  State<MyPage> createState() => MyPageState();
+}
+
+class MyPageState extends State<MyPage> {
+  final _one = GlobalKey();
+  final _two = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    // Register once and (optionally) provide global configs
+    ShowcaseView.register(
+      autoPlayDelay: const Duration(seconds: 3),
+      onStart: (index, key) => debugPrint('Started $index'),
+      onComplete: (index, key) => debugPrint('Completed $index'),
+    );
+
+    // Start after the first frame to ensure layout is ready
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ShowcaseView.get().startShowCase([_one, _two]);
+    });
+  }
+
+  @override
+  void dispose() {
+    // Always unregister to clean up
+    ShowcaseView.get().unregister();
+    super.dispose();
+  }
+
+  void onClose() {
+    ShowcaseView.get().dismiss();
+  }
+}
+```
 
 ## Migration guide for release 4.0.0
 
